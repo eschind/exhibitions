@@ -196,6 +196,23 @@ export async function createExhibition(
   return Number(res.lastInsertRowid)
 }
 
+export async function updateExhibitionPhotos(
+  id: number,
+  photosJson: string | null
+): Promise<void> {
+  await ensureSchema()
+  if (usePostgres) {
+    const sql = await pg()
+    await sql`UPDATE exhibitions SET photos = ${photosJson} WHERE id = ${id}`
+  } else {
+    const c = await libsql()
+    await c.execute({
+      sql: `UPDATE exhibitions SET photos = ? WHERE id = ?`,
+      args: [photosJson, id],
+    })
+  }
+}
+
 export async function deleteExhibition(
   id: number
 ): Promise<Exhibition | undefined> {

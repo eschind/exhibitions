@@ -3,7 +3,12 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import path from 'path'
-import { createExhibition, deleteExhibition } from '@/lib/db'
+import {
+  createExhibition,
+  deleteExhibition,
+  getExhibition,
+  updateExhibitionPhotos,
+} from '@/lib/db'
 import { parsePhotos } from '@/lib/format'
 import { saveUpload, deleteUpload } from '@/lib/storage'
 
@@ -78,6 +83,26 @@ export async function addExhibition(formData: FormData) {
 
   revalidatePath('/')
   redirect(`/exhibition/${id}`)
+}
+
+export async function addPhotosToExhibition(formData: FormData) {
+  const idRaw = formData.get('id')
+  const id = Number(idRaw)
+  if (!id) throw new Error('Missing exhibition id')
+  const existing = await getExhibition(id)
+  if (!existing) throw new Error('Exhibition not found')
+
+  const files = formData.getAll('photos') as File[]
+  const newPaths: string[] = []
+  for (const f of files) {
+    if (f && f.size > 0) newPaths.push(await saveFile(f))
+  }
+  if (newPaths.length === 0) return
+
+  const current = parsePhotos(existing.photos)
+  const next = [...current, ...newPaths]
+  await updateExhibitionPhotos(id, JSON.stringify(next))
+  revalidatePath(`/exhibition/${id}`)
 }
 
 export async function removeExhibition(id: number) {

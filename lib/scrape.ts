@@ -1,6 +1,32 @@
 import * as cheerio from 'cheerio'
 import { lookupCityFromVenue } from './venues'
 
+function looksLikePersonName(s: string): boolean {
+  if (!s) return false
+  const trimmed = s.trim()
+  if (trimmed.length > 60) return false
+  if (/\d/.test(trimmed)) return false
+  const tokens = trimmed.split(/\s+/)
+  if (tokens.length < 2 || tokens.length > 5) return false
+  // Allow particles like "van", "de", "von", "der"
+  const particles = new Set(['van', 'de', 'von', 'der', 'da', 'di', 'del', 'la', 'le'])
+  const capCount = tokens.filter(
+    (t) => /^[A-Z]/.test(t) || particles.has(t.toLowerCase())
+  ).length
+  return capCount === tokens.length
+}
+
+function inferArtistFromTitle(title?: string): string | undefined {
+  if (!title) return undefined
+  // Strip a trailing site-name suffix joined by | — – or :
+  const m = title.match(/^(.+?)\s+[|—–:]\s+.+$/)
+  const candidate = (m ? m[1] : title).trim()
+  // Multiple artists separated by " and " or " & "
+  const parts = candidate.split(/\s+(?:and|&)\s+/i).map((p) => p.trim())
+  if (parts.every(looksLikePersonName)) return parts.join(', ')
+  return undefined
+}
+
 export type ScrapedExhibition = {
   title?: string
   venue?: string
@@ -75,6 +101,7 @@ async function fetchViaMicrolink(link: string): Promise<ScrapedExhibition> {
     hero_image: image,
     venue,
     city: lookupCityFromVenue(venue),
+    artists: inferArtistFromTitle(d.title),
   }
 }
 
@@ -151,7 +178,7 @@ export async function scrapeExhibition(link: string): Promise<ScrapedExhibition>
   return {
     title: title || undefined,
     venue: venue || undefined,
-    artists,
+    artists: artists || inferArtistFromTitle(title),
     hero_image,
     city: city || lookupCityFromVenue(venue),
     description: description || undefined,

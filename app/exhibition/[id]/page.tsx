@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { getExhibition } from '@/lib/db'
 import { formatDate, parsePhotos, splitArtists } from '@/lib/format'
 import ExhibitionMenu from '@/components/ExhibitionMenu'
+import AddPhotosForm from '@/components/AddPhotosForm'
 
 function wikipediaUrl(name: string): string {
   return `https://en.wikipedia.org/wiki/Special:Search?go=Go&search=${encodeURIComponent(name)}`
@@ -149,11 +150,14 @@ export default async function ExhibitionPage({
         </aside>
       </div>
 
-      {photos.length > 0 ? (
-        <section>
-          <h2 className="text-xs uppercase tracking-widest text-neutral-500 mb-6 pb-3 border-b border-black">
+      <section>
+        <div className="flex items-end justify-between mb-6 pb-3 border-b border-black gap-4">
+          <h2 className="text-xs uppercase tracking-widest text-neutral-500">
             My photos
           </h2>
+          <AddPhotosForm id={e.id} />
+        </div>
+        {photos.length > 0 ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {photos.map((src) => (
               <div key={src} className="bg-neutral-100">
@@ -162,8 +166,10 @@ export default async function ExhibitionPage({
               </div>
             ))}
           </div>
-        </section>
-      ) : null}
+        ) : (
+          <div className="text-sm text-neutral-400 py-8">No photos yet.</div>
+        )}
+      </section>
     </article>
   )
 }
