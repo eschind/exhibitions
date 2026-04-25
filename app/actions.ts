@@ -3,11 +3,9 @@
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import path from 'path'
-import fs from 'fs/promises'
 import { createExhibition, deleteExhibition } from '@/lib/db'
 import { parsePhotos } from '@/lib/format'
-
-const UPLOAD_DIR = path.join(process.cwd(), 'public', 'uploads')
+import { saveUpload, deleteUpload } from '@/lib/storage'
 
 function isHeic(file: File): boolean {
   const name = file.name.toLowerCase()
@@ -21,9 +19,9 @@ function isHeic(file: File): boolean {
 }
 
 async function saveFile(file: File): Promise<string> {
-  await fs.mkdir(UPLOAD_DIR, { recursive: true })
   let buf = Buffer.from(await file.arrayBuffer())
-  let ext = path.extname(file.name) || '.jpg'
+  let contentType = file.type || 'application/octet-stream'
+  let forceExt: string | undefined
   if (isHeic(file)) {
     const heicConvert = (await import('heic-convert')).default
     const out = await heicConvert({
@@ -32,11 +30,12 @@ async function saveFile(file: File): Promise<string> {
       quality: 0.9,
     })
     buf = Buffer.from(out)
-    ext = '.jpg'
+    contentType = 'image/jpeg'
+    forceExt = '.jpg'
+  } else if (!path.extname(file.name)) {
+    forceExt = '.jpg'
   }
-  const name = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}${ext}`
-  await fs.writeFile(path.join(UPLOAD_DIR, name), buf)
-  return `/uploads/${name}`
+  return saveUpload(buf, file.name, contentType, forceExt)
 }
 
 export async function addExhibition(formData: FormData) {
@@ -64,7 +63,7 @@ export async function addExhibition(formData: FormData) {
     if (f && f.size > 0) photoPaths.push(await saveFile(f))
   }
 
-  const id = createExhibition({
+  const id = await createExhibition({
     title,
     venue,
     artists,
@@ -82,20 +81,12 @@ export async function addExhibition(formData: FormData) {
 }
 
 export async function removeExhibition(id: number) {
-  const row = deleteExhibition(id)
+  const row = await deleteExhibition(id)
   if (!row) return
   const files = [
-    ...(row.hero_image && row.hero_image.startsWith('/uploads/')
-      ? [row.hero_image]
-      : []),
+    ...(row.hero_image ? [row.hero_image] : []),
     ...parsePhotos(row.photos),
   ]
-  await Promise.all(
-    files.map(async (rel) => {
-      const filePath = path.join(process.cwd(), 'public', rel.replace(/^\//, ''))
-      await fs.unlink(filePath).catch(() => {})
-    })
-  )
+  await Promise.all(files.map((url) => deleteUpload(url)))
   revalidatePath('/')
 }
-

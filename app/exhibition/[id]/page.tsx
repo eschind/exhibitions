@@ -45,7 +45,7 @@ export default async function ExhibitionPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const e = getExhibition(Number(id))
+  const e = await getExhibition(Number(id))
   if (!e) notFound()
 
   const photos = parsePhotos(e.photos)

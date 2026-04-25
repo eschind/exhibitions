@@ -3,7 +3,7 @@ import HomeClient from '@/components/HomeClient'
 
 export const dynamic = 'force-dynamic'
 
-export default function Home() {
-  const exhibitions = listExhibitions()
+export default async function Home() {
+  const exhibitions = await listExhibitions()
   return <HomeClient exhibitions={exhibitions} />
 }
