@@ -75,7 +75,7 @@ export default async function ExhibitionPage({
           </h1>
           {e.artists ? (
             <div className="text-xl md:text-2xl font-light text-neutral-800 mb-2">
-              <ArtistLinks value={e.artists} />
+              {e.artists}
             </div>
           ) : null}
           <div className="text-sm uppercase tracking-widest text-neutral-500">
