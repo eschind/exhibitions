@@ -57,15 +57,23 @@ export async function addExhibition(formData: FormData) {
   const hero_image_url = (formData.get('hero_image_url') as string) || null
 
   let hero_image: string | null = hero_image_url
-  const heroFile = formData.get('hero_image_file') as File | null
-  if (heroFile && heroFile.size > 0) {
-    hero_image = await saveFile(heroFile)
+  const heroBlobUrl = (formData.get('hero_image_blob_url') as string) || null
+  if (heroBlobUrl) {
+    hero_image = heroBlobUrl
+  } else {
+    const heroFile = formData.get('hero_image_file') as File | null
+    if (heroFile && heroFile.size > 0) {
+      hero_image = await saveFile(heroFile)
+    }
   }
 
-  const photoFiles = formData.getAll('photos') as File[]
-  const photoPaths: string[] = []
-  for (const f of photoFiles) {
-    if (f && f.size > 0) photoPaths.push(await saveFile(f))
+  const photoUrlsRaw = formData.getAll('photo_urls') as string[]
+  const photoPaths: string[] = photoUrlsRaw.filter((u) => typeof u === 'string' && u)
+  if (photoPaths.length === 0) {
+    const photoFiles = formData.getAll('photos') as File[]
+    for (const f of photoFiles) {
+      if (f && f.size > 0) photoPaths.push(await saveFile(f))
+    }
   }
 
   const id = await createExhibition({
@@ -92,10 +100,13 @@ export async function addPhotosToExhibition(formData: FormData) {
   const existing = await getExhibition(id)
   if (!existing) throw new Error('Exhibition not found')
 
-  const files = formData.getAll('photos') as File[]
-  const newPaths: string[] = []
-  for (const f of files) {
-    if (f && f.size > 0) newPaths.push(await saveFile(f))
+  const photoUrlsRaw = formData.getAll('photo_urls') as string[]
+  const newPaths: string[] = photoUrlsRaw.filter((u) => typeof u === 'string' && u)
+  if (newPaths.length === 0) {
+    const files = formData.getAll('photos') as File[]
+    for (const f of files) {
+      if (f && f.size > 0) newPaths.push(await saveFile(f))
+    }
   }
   if (newPaths.length === 0) return
 

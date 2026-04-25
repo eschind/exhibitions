@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from 'react'
 import { addExhibition } from '@/app/actions'
+import { prepareUploads, blobEnabled } from '@/lib/clientUpload'
 
 export default function NewExhibitionForm() {
   const [link, setLink] = useState('')
@@ -49,10 +50,32 @@ export default function NewExhibitionForm() {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setSubmitError(null)
-    const formData = new FormData(e.currentTarget)
-    formData.set('hero_image_url', heroImageUrl)
+    const formEl = e.currentTarget
     startTransition(async () => {
       try {
+        const formData = new FormData(formEl)
+        formData.set('hero_image_url', heroImageUrl)
+
+        if (blobEnabled) {
+          const heroFile = formData.get('hero_image_file')
+          if (heroFile instanceof File && heroFile.size > 0) {
+            const [uploaded] = await prepareUploads([heroFile])
+            if ('url' in uploaded) formData.set('hero_image_blob_url', uploaded.url)
+          }
+          formData.delete('hero_image_file')
+
+          const photoFiles = formData
+            .getAll('photos')
+            .filter((f): f is File => f instanceof File && f.size > 0)
+          if (photoFiles.length > 0) {
+            const uploaded = await prepareUploads(photoFiles)
+            for (const u of uploaded) {
+              if ('url' in u) formData.append('photo_urls', u.url)
+            }
+          }
+          formData.delete('photos')
+        }
+
         await addExhibition(formData)
       } catch (err) {
         if (err instanceof Error && err.message === 'NEXT_REDIRECT') return

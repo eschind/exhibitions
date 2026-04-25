@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from 'react'
 import { addPhotosToExhibition } from '@/app/actions'
+import { prepareUploads, blobEnabled } from '@/lib/clientUpload'
 
 export default function AddPhotosForm({ id }: { id: number }) {
   const [isPending, startTransition] = useTransition()
@@ -12,11 +13,23 @@ export default function AddPhotosForm({ id }: { id: number }) {
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setError(null)
-    const fd = new FormData(e.currentTarget)
-    const files = fd.getAll('photos').filter((f): f is File => f instanceof File && f.size > 0)
-    if (files.length === 0) return
+    const formEl = e.currentTarget
     startTransition(async () => {
       try {
+        const fd = new FormData(formEl)
+        const files = fd
+          .getAll('photos')
+          .filter((f): f is File => f instanceof File && f.size > 0)
+        if (files.length === 0) return
+
+        if (blobEnabled) {
+          const uploaded = await prepareUploads(files)
+          fd.delete('photos')
+          for (const u of uploaded) {
+            if ('url' in u) fd.append('photo_urls', u.url)
+          }
+        }
+
         await addPhotosToExhibition(fd)
         formRef.current?.reset()
       } catch (err) {
