@@ -1,14 +1,27 @@
 import * as cheerio from 'cheerio'
 import { lookupCityFromVenue } from './venues'
 
+const SINGLE_NAME_STOPWORDS = new Set([
+  'about', 'home', 'welcome', 'exhibition', 'exhibitions', 'visit',
+  'current', 'upcoming', 'past', 'gallery', 'museum', 'news', 'events',
+  'calendar', 'tickets', 'shop', 'membership', 'collection', 'collections',
+  'art', 'artists', 'artist', 'view', 'overview', 'index', 'discover',
+])
+
 function looksLikePersonName(s: string): boolean {
   if (!s) return false
   const trimmed = s.trim()
   if (trimmed.length > 60) return false
   if (/\d/.test(trimmed)) return false
   const tokens = trimmed.split(/\s+/)
-  if (tokens.length < 2 || tokens.length > 5) return false
-  // Allow particles like "van", "de", "von", "der"
+  if (tokens.length === 1) {
+    const t = tokens[0]
+    if (t.length < 4 || t.length > 30) return false
+    if (!/^[A-Z][a-zA-ZÀ-ÿ'’\-]+$/.test(t)) return false
+    if (SINGLE_NAME_STOPWORDS.has(t.toLowerCase())) return false
+    return true
+  }
+  if (tokens.length > 5) return false
   const particles = new Set(['van', 'de', 'von', 'der', 'da', 'di', 'del', 'la', 'le'])
   const capCount = tokens.filter(
     (t) => /^[A-Z]/.test(t) || particles.has(t.toLowerCase())
@@ -22,7 +35,7 @@ function inferArtistFromTitle(title?: string): string | undefined {
   const m = title.match(/^(.+?)\s+[|—–:]\s+.+$/)
   const candidate = (m ? m[1] : title).trim()
   // Multiple artists separated by " and " or " & "
-  const parts = candidate.split(/\s+(?:and|&)\s+/i).map((p) => p.trim())
+  const parts = candidate.split(/\s+(?:and|&|,)\s+/i).map((p) => p.trim())
   if (parts.every(looksLikePersonName)) return parts.join(', ')
   return undefined
 }
@@ -34,6 +47,8 @@ export type ScrapedExhibition = {
   hero_image?: string
   city?: string
   description?: string
+  start_date?: string
+  end_date?: string
 }
 
 function abs(url: string | undefined, base: string): string | undefined {
@@ -156,13 +171,37 @@ export async function scrapeExhibition(link: string): Promise<ScrapedExhibition>
     $('title').text().trim() ||
     undefined
 
-  const description =
+  const metaDescription =
     meta('og:description') ||
     meta('description') ||
     meta('twitter:description') ||
     undefined
 
+  // Pull longer body description from substantial paragraphs.
+  const SKIP_PATTERNS = /\b(support is provided|sponsored by|made possible by|gratitude|generously|thanks to|copyright|all rights reserved|cookie|newsletter|subscribe|sign up|terms of use|privacy)\b/i
+  const bodyParagraphs: string[] = []
+  $('p').each((_, el) => {
+    const text = $(el).text().replace(/\s+/g, ' ').trim()
+    if (text.length < 80) return
+    if (SKIP_PATTERNS.test(text)) return
+    bodyParagraphs.push(text)
+  })
+  const bodyDescription = bodyParagraphs.slice(0, 3).join('\n\n').slice(0, 2000)
+  const description =
+    bodyDescription && bodyDescription.length > (metaDescription?.length ?? 0)
+      ? bodyDescription
+      : metaDescription
+
   const hero_image = abs(meta('og:image') || meta('twitter:image'), link)
+
+  // Extract exhibition dates. Try JSON-LD first, then inline JSON anywhere in HTML.
+  let start_date: string | undefined
+  let end_date: string | undefined
+  const dateFromIso = (s: unknown): string | undefined => {
+    if (typeof s !== 'string') return undefined
+    const m = s.match(/^(\d{4}-\d{2}-\d{2})/)
+    return m ? m[1] : undefined
+  }
 
   const siteName = meta('og:site_name')
   const host = (() => {
@@ -200,11 +239,21 @@ export async function scrapeExhibition(link: string): Promise<ScrapedExhibition>
           const addr = loc?.address || loc
           if (addr?.addressLocality) city = addr.addressLocality
         }
+        if (!start_date) start_date = dateFromIso(item.startDate)
+        if (!end_date) end_date = dateFromIso(item.endDate)
       }
     } catch {
       // ignore
     }
   })
+
+  // Fallback: scan inline JSON / RSC payload for "startDate":"..." style.
+  if (!start_date || !end_date) {
+    const startMatch = html.match(/"startDate"\s*:\s*"([^"]+)"/)
+    const endMatch = html.match(/"endDate"\s*:\s*"([^"]+)"/)
+    if (!start_date && startMatch) start_date = dateFromIso(startMatch[1])
+    if (!end_date && endMatch) end_date = dateFromIso(endMatch[1])
+  }
 
   return {
     title: title || undefined,
@@ -213,5 +262,7 @@ export async function scrapeExhibition(link: string): Promise<ScrapedExhibition>
     hero_image,
     city: city || lookupCityFromVenue(venue),
     description: description || undefined,
+    start_date,
+    end_date,
   }
 }

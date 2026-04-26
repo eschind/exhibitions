@@ -17,6 +17,8 @@ export default function NewExhibitionForm({
   const [artists, setArtists] = useState('')
   const [city, setCity] = useState('')
   const [dateVisited, setDateVisited] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [description, setDescription] = useState('')
   const [notes, setNotes] = useState('')
   const [heroImageUrl, setHeroImageUrl] = useState('')
@@ -46,6 +48,8 @@ export default function NewExhibitionForm({
       if (data.city && !city) setCity(data.city)
       if (data.description && !description) setDescription(data.description)
       if (data.hero_image && !heroImageUrl) setHeroImageUrl(data.hero_image)
+      if (data.start_date && !startDate) setStartDate(data.start_date)
+      if (data.end_date && !endDate) setEndDate(data.end_date)
     } catch (err) {
       setScrapeError(err instanceof Error ? err.message : 'Failed to scrape')
     } finally {
@@ -194,6 +198,26 @@ export default function NewExhibitionForm({
             />
           </Field>
         )}
+
+        <Field label="Exhibition starts">
+          <input
+            name="start_date"
+            type="date"
+            value={startDate}
+            onChange={(e) => setStartDate(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
+
+        <Field label="Exhibition ends">
+          <input
+            name="end_date"
+            type="date"
+            value={endDate}
+            onChange={(e) => setEndDate(e.target.value)}
+            className={inputCls}
+          />
+        </Field>
       </div>
 
       <Field label="Hero image">

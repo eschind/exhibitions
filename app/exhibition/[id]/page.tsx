@@ -3,7 +3,7 @@ import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
 import { getExhibition } from '@/lib/db'
 import { requireUserId } from '@/lib/session'
-import { formatDate, parsePhotos, splitArtists } from '@/lib/format'
+import { formatDate, formatDateRange, parsePhotos, splitArtists } from '@/lib/format'
 import ExhibitionMenu from '@/components/ExhibitionMenu'
 import AddPhotosForm from '@/components/AddPhotosForm'
 import MarkVisitedDialog from '@/components/MarkVisitedDialog'
@@ -76,6 +76,11 @@ export default async function ExhibitionPage({
           {e.status === 'wishlist' ? (
             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">
               Wishlist
+              {e.start_date || e.end_date ? (
+                <span className="ml-3 normal-case tracking-normal text-neutral-700">
+                  {formatDateRange(e.start_date, e.end_date)}
+                </span>
+              ) : null}
             </div>
           ) : e.date_visited ? (
             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">
@@ -143,6 +148,12 @@ export default async function ExhibitionPage({
             </div>
           ) : null}
           <Field label="City" value={e.city} />
+          {e.start_date || e.end_date ? (
+            <Field
+              label="Exhibition dates"
+              value={formatDateRange(e.start_date, e.end_date)}
+            />
+          ) : null}
           <Field label="Date visited" value={formatDate(e.date_visited)} />
           {e.link ? (
             <div>

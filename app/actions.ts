@@ -60,6 +60,8 @@ export async function addExhibition(formData: FormData) {
     throw new Error('Date visited is required')
   }
   const date_visited = date_visited_raw || null
+  const start_date = ((formData.get('start_date') as string) || '').trim() || null
+  const end_date = ((formData.get('end_date') as string) || '').trim() || null
   const description = (formData.get('description') as string) || null
   const notes = (formData.get('notes') as string) || null
   const hero_image_url = (formData.get('hero_image_url') as string) || null
@@ -92,6 +94,8 @@ export async function addExhibition(formData: FormData) {
       hero_image,
       city,
       date_visited,
+      start_date,
+      end_date,
       description,
       photos: photoPaths.length ? JSON.stringify(photoPaths) : null,
       notes,

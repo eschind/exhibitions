@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import type { Exhibition } from '@/lib/db'
+import { formatDateRange } from '@/lib/format'
 import ExhibitionMenu from './ExhibitionMenu'
 import MarkVisitedDialog from './MarkVisitedDialog'
 
@@ -58,6 +59,11 @@ function Card({ e }: { e: Exhibition }) {
           <div className="absolute top-0 right-0">
             <ExhibitionMenu id={e.id} title={e.title} variant="card" />
           </div>
+          {e.start_date || e.end_date ? (
+            <div className="text-xs uppercase tracking-widest text-neutral-500">
+              {formatDateRange(e.start_date, e.end_date)}
+            </div>
+          ) : null}
           <h2 className="text-xl md:text-2xl font-light leading-tight group-hover:underline underline-offset-4">
             {e.title}
           </h2>

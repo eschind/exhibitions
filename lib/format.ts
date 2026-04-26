@@ -48,6 +48,26 @@ export function parsePhotos(json: string | null): string[] {
   }
 }
 
+export function formatDateRange(
+  start: string | null,
+  end: string | null
+): string {
+  if (!start && !end) return ''
+  const fmt = (s: string, opts: Intl.DateTimeFormatOptions) => {
+    const d = parseLocalDate(s)
+    return d ? d.toLocaleDateString('en-US', opts) : s
+  }
+  if (start && end) {
+    const ds = parseLocalDate(start)
+    const de = parseLocalDate(end)
+    if (ds && de && ds.getFullYear() === de.getFullYear()) {
+      return `${fmt(start, { month: 'short', day: 'numeric' })} – ${fmt(end, { month: 'short', day: 'numeric', year: 'numeric' })}`
+    }
+    return `${fmt(start, { month: 'short', day: 'numeric', year: 'numeric' })} – ${fmt(end, { month: 'short', day: 'numeric', year: 'numeric' })}`
+  }
+  return fmt((start || end) as string, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
 export function splitArtists(s: string | null): string[] {
   if (!s) return []
   return s

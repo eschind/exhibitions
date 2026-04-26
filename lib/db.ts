@@ -11,6 +11,8 @@ export type Exhibition = {
   hero_image: string | null
   city: string | null
   date_visited: string | null
+  start_date: string | null
+  end_date: string | null
   description: string | null
   photos: string | null
   notes: string | null
@@ -52,6 +54,8 @@ function toExhibition(
     hero_image: (row.hero_image as string | null) ?? null,
     city: (row.city as string | null) ?? null,
     date_visited: (row.date_visited as string | null) ?? null,
+    start_date: (row.start_date as string | null) ?? null,
+    end_date: (row.end_date as string | null) ?? null,
     description: (row.description as string | null) ?? null,
     photos: (row.photos as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
@@ -140,6 +144,8 @@ async function ensureSchema() {
       ALTER TABLE exhibitions
         ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'visited'
     `
+    await sql`ALTER TABLE exhibitions ADD COLUMN IF NOT EXISTS start_date TEXT`
+    await sql`ALTER TABLE exhibitions ADD COLUMN IF NOT EXISTS end_date TEXT`
     await sql`CREATE INDEX IF NOT EXISTS exhibitions_user_id_idx ON exhibitions(user_id)`
   } else {
     const c = await libsql()
@@ -182,6 +188,12 @@ async function ensureSchema() {
       await c.execute(
         `ALTER TABLE exhibitions ADD COLUMN status TEXT NOT NULL DEFAULT 'visited'`
       )
+    }
+    if (!colNames.includes('start_date')) {
+      await c.execute(`ALTER TABLE exhibitions ADD COLUMN start_date TEXT`)
+    }
+    if (!colNames.includes('end_date')) {
+      await c.execute(`ALTER TABLE exhibitions ADD COLUMN end_date TEXT`)
     }
   }
   _initialized = true
@@ -301,16 +313,16 @@ export async function createExhibition(
   if (usePostgres) {
     const sql = await pg()
     const rows = (await sql`
-      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id, status)
-      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link}, ${userId}, ${input.status})
+      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, start_date, end_date, description, photos, notes, link, user_id, status)
+      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.start_date}, ${input.end_date}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link}, ${userId}, ${input.status})
       RETURNING id
     `) as Array<{ id: number }>
     return Number(rows[0].id)
   }
   const c = await libsql()
   const res = await c.execute({
-    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id, status)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, start_date, end_date, description, photos, notes, link, user_id, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.title,
       input.venue,
@@ -318,6 +330,8 @@ export async function createExhibition(
       input.hero_image,
       input.city,
       input.date_visited,
+      input.start_date,
+      input.end_date,
       input.description,
       input.photos,
       input.notes,
