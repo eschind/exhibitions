@@ -8,9 +8,7 @@ import {
   deleteExhibition,
   getExhibition,
   markExhibitionVisited,
-  savePreferences as dbSavePreferences,
   updateExhibitionPhotos,
-  type Preferences,
 } from '@/lib/db'
 import { requireUserId } from '@/lib/session'
 import { parsePhotos } from '@/lib/format'
@@ -183,8 +181,3 @@ export async function markAsVisited(formData: FormData) {
   redirect(`/exhibition/${id}`)
 }
 
-export async function savePreferences(prefs: Preferences) {
-  const userId = await requireUserId()
-  await dbSavePreferences(userId, prefs)
-  revalidatePath('/wishlist')
-}
