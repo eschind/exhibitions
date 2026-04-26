@@ -18,6 +18,14 @@ export type Exhibition = {
 
 export type ExhibitionInput = Omit<Exhibition, 'id' | 'created_at'>
 
+export type User = {
+  id: number
+  email: string
+  name: string | null
+  image: string | null
+  created_at: string
+}
+
 const POSTGRES_URL =
   process.env.POSTGRES_URL ||
   process.env.DATABASE_URL ||
@@ -25,6 +33,7 @@ const POSTGRES_URL =
   ''
 
 const usePostgres = Boolean(POSTGRES_URL)
+const OWNER_EMAIL = (process.env.OWNER_EMAIL || '').toLowerCase()
 
 function toExhibition(
   row: Record<string, unknown> | undefined
@@ -50,7 +59,20 @@ function toExhibition(
   }
 }
 
-// Postgres branch ----------------------------------------------------------
+function toUser(row: Record<string, unknown> | undefined): User | undefined {
+  if (!row) return undefined
+  const created = row.created_at
+  return {
+    id: Number(row.id),
+    email: String(row.email ?? ''),
+    name: (row.name as string | null) ?? null,
+    image: (row.image as string | null) ?? null,
+    created_at:
+      created instanceof Date
+        ? created.toISOString()
+        : String(created ?? ''),
+  }
+}
 
 let _pg: ReturnType<
   typeof import('@neondatabase/serverless').neon
@@ -62,8 +84,6 @@ async function pg() {
   _pg = neon(POSTGRES_URL)
   return _pg
 }
-
-// SQLite (libsql) branch ---------------------------------------------------
 
 let _libsql: import('@libsql/client').Client | null = null
 async function libsql() {
@@ -83,6 +103,15 @@ async function ensureSchema() {
   if (usePostgres) {
     const sql = await pg()
     await sql`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        image TEXT,
+        created_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
+    await sql`
       CREATE TABLE IF NOT EXISTS exhibitions (
         id SERIAL PRIMARY KEY,
         title TEXT NOT NULL,
@@ -98,8 +127,22 @@ async function ensureSchema() {
         created_at TIMESTAMPTZ DEFAULT NOW()
       )
     `
+    await sql`
+      ALTER TABLE exhibitions
+        ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
+    `
+    await sql`CREATE INDEX IF NOT EXISTS exhibitions_user_id_idx ON exhibitions(user_id)`
   } else {
     const c = await libsql()
+    await c.execute(`
+      CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT UNIQUE NOT NULL,
+        name TEXT,
+        image TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
     await c.execute(`
       CREATE TABLE IF NOT EXISTS exhibitions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -113,21 +156,90 @@ async function ensureSchema() {
         photos TEXT,
         notes TEXT,
         link TEXT,
+        user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP
       )
     `)
+    const cols = await c.execute(`PRAGMA table_info(exhibitions)`)
+    const hasUserId = cols.rows.some(
+      (r) => (r as unknown as { name: string }).name === 'user_id'
+    )
+    if (!hasUserId) {
+      await c.execute(
+        `ALTER TABLE exhibitions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`
+      )
+    }
   }
   _initialized = true
 }
 
-// Public API ---------------------------------------------------------------
+// Users --------------------------------------------------------------------
 
-export async function listExhibitions(): Promise<Exhibition[]> {
+export async function upsertUserFromOAuth(input: {
+  email: string
+  name: string | null
+  image: string | null
+}): Promise<number> {
+  await ensureSchema()
+  const email = input.email.toLowerCase()
+  if (usePostgres) {
+    const sql = await pg()
+    const rows = (await sql`
+      INSERT INTO users (email, name, image)
+      VALUES (${email}, ${input.name}, ${input.image})
+      ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name, image = EXCLUDED.image
+      RETURNING id
+    `) as Array<{ id: number }>
+    const id = Number(rows[0].id)
+    if (OWNER_EMAIL && email === OWNER_EMAIL) {
+      await sql`UPDATE exhibitions SET user_id = ${id} WHERE user_id IS NULL`
+    }
+    return id
+  }
+  const c = await libsql()
+  await c.execute({
+    sql: `INSERT INTO users (email, name, image) VALUES (?, ?, ?)
+          ON CONFLICT(email) DO UPDATE SET name = excluded.name, image = excluded.image`,
+    args: [email, input.name, input.image],
+  })
+  const res = await c.execute({
+    sql: `SELECT id FROM users WHERE email = ?`,
+    args: [email],
+  })
+  const id = Number((res.rows[0] as unknown as { id: number }).id)
+  if (OWNER_EMAIL && email === OWNER_EMAIL) {
+    await c.execute({
+      sql: `UPDATE exhibitions SET user_id = ? WHERE user_id IS NULL`,
+      args: [id],
+    })
+  }
+  return id
+}
+
+export async function getUserById(id: number): Promise<User | undefined> {
+  await ensureSchema()
+  if (usePostgres) {
+    const sql = await pg()
+    const rows = (await sql`SELECT * FROM users WHERE id = ${id}`) as Record<
+      string,
+      unknown
+    >[]
+    return toUser(rows[0])
+  }
+  const c = await libsql()
+  const res = await c.execute({ sql: `SELECT * FROM users WHERE id = ?`, args: [id] })
+  return toUser(res.rows[0] as unknown as Record<string, unknown>)
+}
+
+// Exhibitions --------------------------------------------------------------
+
+export async function listExhibitions(userId: number): Promise<Exhibition[]> {
   await ensureSchema()
   if (usePostgres) {
     const sql = await pg()
     const rows = (await sql`
       SELECT * FROM exhibitions
+      WHERE user_id = ${userId}
       ORDER BY date_visited DESC NULLS LAST, id DESC
     `) as Record<string, unknown>[]
     return rows
@@ -135,51 +247,53 @@ export async function listExhibitions(): Promise<Exhibition[]> {
       .filter((x): x is Exhibition => Boolean(x))
   }
   const c = await libsql()
-  const res = await c.execute(
-    `SELECT * FROM exhibitions ORDER BY date_visited DESC, id DESC`
-  )
+  const res = await c.execute({
+    sql: `SELECT * FROM exhibitions WHERE user_id = ? ORDER BY date_visited DESC, id DESC`,
+    args: [userId],
+  })
   return res.rows
     .map((r) => toExhibition(r as unknown as Record<string, unknown>))
     .filter((x): x is Exhibition => Boolean(x))
 }
 
 export async function getExhibition(
-  id: number
+  id: number,
+  userId: number
 ): Promise<Exhibition | undefined> {
   await ensureSchema()
   if (usePostgres) {
     const sql = await pg()
-    const rows = (await sql`SELECT * FROM exhibitions WHERE id = ${id}`) as Record<
-      string,
-      unknown
-    >[]
+    const rows = (await sql`
+      SELECT * FROM exhibitions WHERE id = ${id} AND user_id = ${userId}
+    `) as Record<string, unknown>[]
     return toExhibition(rows[0])
   }
   const c = await libsql()
   const res = await c.execute({
-    sql: `SELECT * FROM exhibitions WHERE id = ?`,
-    args: [id],
+    sql: `SELECT * FROM exhibitions WHERE id = ? AND user_id = ?`,
+    args: [id, userId],
   })
   return toExhibition(res.rows[0] as unknown as Record<string, unknown>)
 }
 
 export async function createExhibition(
-  input: ExhibitionInput
+  input: ExhibitionInput,
+  userId: number
 ): Promise<number> {
   await ensureSchema()
   if (usePostgres) {
     const sql = await pg()
     const rows = (await sql`
-      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link)
-      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link})
+      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id)
+      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link}, ${userId})
       RETURNING id
     `) as Array<{ id: number }>
     return Number(rows[0].id)
   }
   const c = await libsql()
   const res = await c.execute({
-    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.title,
       input.venue,
@@ -191,6 +305,7 @@ export async function createExhibition(
       input.photos,
       input.notes,
       input.link,
+      userId,
     ],
   })
   return Number(res.lastInsertRowid)
@@ -198,35 +313,37 @@ export async function createExhibition(
 
 export async function updateExhibitionPhotos(
   id: number,
+  userId: number,
   photosJson: string | null
 ): Promise<void> {
   await ensureSchema()
   if (usePostgres) {
     const sql = await pg()
-    await sql`UPDATE exhibitions SET photos = ${photosJson} WHERE id = ${id}`
+    await sql`UPDATE exhibitions SET photos = ${photosJson} WHERE id = ${id} AND user_id = ${userId}`
   } else {
     const c = await libsql()
     await c.execute({
-      sql: `UPDATE exhibitions SET photos = ? WHERE id = ?`,
-      args: [photosJson, id],
+      sql: `UPDATE exhibitions SET photos = ? WHERE id = ? AND user_id = ?`,
+      args: [photosJson, id, userId],
     })
   }
 }
 
 export async function deleteExhibition(
-  id: number
+  id: number,
+  userId: number
 ): Promise<Exhibition | undefined> {
   await ensureSchema()
-  const row = await getExhibition(id)
+  const row = await getExhibition(id, userId)
   if (!row) return undefined
   if (usePostgres) {
     const sql = await pg()
-    await sql`DELETE FROM exhibitions WHERE id = ${id}`
+    await sql`DELETE FROM exhibitions WHERE id = ${id} AND user_id = ${userId}`
   } else {
     const c = await libsql()
     await c.execute({
-      sql: `DELETE FROM exhibitions WHERE id = ?`,
-      args: [id],
+      sql: `DELETE FROM exhibitions WHERE id = ? AND user_id = ?`,
+      args: [id, userId],
     })
   }
   return row

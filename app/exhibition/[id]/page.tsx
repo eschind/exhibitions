@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { Fragment } from 'react'
 import { notFound } from 'next/navigation'
 import { getExhibition } from '@/lib/db'
+import { requireUserId } from '@/lib/session'
 import { formatDate, parsePhotos, splitArtists } from '@/lib/format'
 import ExhibitionMenu from '@/components/ExhibitionMenu'
 import AddPhotosForm from '@/components/AddPhotosForm'
@@ -46,7 +47,8 @@ export default async function ExhibitionPage({
   params: Promise<{ id: string }>
 }) {
   const { id } = await params
-  const e = await getExhibition(Number(id))
+  const userId = await requireUserId()
+  const e = await getExhibition(Number(id), userId)
   if (!e) notFound()
 
   const photos = parsePhotos(e.photos)

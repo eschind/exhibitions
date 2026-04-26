@@ -9,6 +9,7 @@ import {
   getExhibition,
   updateExhibitionPhotos,
 } from '@/lib/db'
+import { requireUserId } from '@/lib/session'
 import { parsePhotos } from '@/lib/format'
 import { saveUpload, deleteUpload } from '@/lib/storage'
 
@@ -44,6 +45,7 @@ async function saveFile(file: File): Promise<string> {
 }
 
 export async function addExhibition(formData: FormData) {
+  const userId = await requireUserId()
   const link = (formData.get('link') as string) || null
   const title = (formData.get('title') as string)?.trim()
   if (!title) throw new Error('Title is required')
@@ -76,28 +78,32 @@ export async function addExhibition(formData: FormData) {
     }
   }
 
-  const id = await createExhibition({
-    title,
-    venue,
-    artists,
-    hero_image,
-    city,
-    date_visited,
-    description,
-    photos: photoPaths.length ? JSON.stringify(photoPaths) : null,
-    notes,
-    link,
-  })
+  const id = await createExhibition(
+    {
+      title,
+      venue,
+      artists,
+      hero_image,
+      city,
+      date_visited,
+      description,
+      photos: photoPaths.length ? JSON.stringify(photoPaths) : null,
+      notes,
+      link,
+    },
+    userId
+  )
 
   revalidatePath('/')
   redirect(`/exhibition/${id}`)
 }
 
 export async function addPhotosToExhibition(formData: FormData) {
+  const userId = await requireUserId()
   const idRaw = formData.get('id')
   const id = Number(idRaw)
   if (!id) throw new Error('Missing exhibition id')
-  const existing = await getExhibition(id)
+  const existing = await getExhibition(id, userId)
   if (!existing) throw new Error('Exhibition not found')
 
   const photoUrlsRaw = formData.getAll('photo_urls') as string[]
@@ -112,12 +118,13 @@ export async function addPhotosToExhibition(formData: FormData) {
 
   const current = parsePhotos(existing.photos)
   const next = [...current, ...newPaths]
-  await updateExhibitionPhotos(id, JSON.stringify(next))
+  await updateExhibitionPhotos(id, userId, JSON.stringify(next))
   revalidatePath(`/exhibition/${id}`)
 }
 
 export async function removeExhibition(id: number) {
-  const row = await deleteExhibition(id)
+  const userId = await requireUserId()
+  const row = await deleteExhibition(id, userId)
   if (!row) return
   const files = [
     ...(row.hero_image ? [row.hero_image] : []),
