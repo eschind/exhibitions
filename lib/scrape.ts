@@ -45,7 +45,7 @@ function abs(url: string | undefined, base: string): string | undefined {
   }
 }
 
-async function fetchHtml(link: string): Promise<string> {
+async function fetchHtmlDirect(link: string): Promise<string> {
   const res = await fetch(link, {
     headers: {
       'User-Agent':
@@ -61,6 +61,37 @@ async function fetchHtml(link: string): Promise<string> {
     throw new Error('blocked by anti-bot challenge')
   }
   return html
+}
+
+async function fetchHtmlViaNimble(link: string): Promise<string> {
+  const key = process.env.NIMBLE_API_KEY
+  if (!key) throw new Error('Nimble not configured')
+  const res = await fetch('https://api.webit.live/api/v1/realtime/web', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${key}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      url: link,
+      method: 'GET',
+      render: true,
+      format: 'html',
+    }),
+  })
+  if (!res.ok) throw new Error(`nimble ${res.status}`)
+  return await res.text()
+}
+
+async function fetchHtml(link: string): Promise<string> {
+  if (process.env.NIMBLE_API_KEY) {
+    try {
+      return await fetchHtmlViaNimble(link)
+    } catch {
+      // fall through to direct
+    }
+  }
+  return await fetchHtmlDirect(link)
 }
 
 async function fetchViaMicrolink(link: string): Promise<ScrapedExhibition> {
