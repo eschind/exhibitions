@@ -16,7 +16,7 @@ export default async function WishlistPage() {
           Wishlist
         </h1>
         <Link
-          href="/new"
+          href="/new?status=wishlist"
           className="text-xs uppercase tracking-widest border border-black px-4 py-2 hover:bg-black hover:text-white transition-colors"
         >
           Add to wishlist

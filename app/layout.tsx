@@ -3,6 +3,7 @@ import Link from 'next/link'
 import './globals.css'
 import UserNav from '@/components/UserNav'
 import PrimaryNav from '@/components/PrimaryNav'
+import AddButton from '@/components/AddButton'
 import { auth } from '@/auth'
 
 export const metadata: Metadata = {
@@ -29,12 +30,7 @@ export default async function RootLayout({
             {isAuthed ? (
               <div className="flex items-center gap-6">
                 <UserNav />
-                <Link
-                  href="/new"
-                  className="text-xs uppercase tracking-widest border border-black px-4 py-2 hover:bg-black hover:text-white transition-colors"
-                >
-                  Add new
-                </Link>
+                <AddButton />
               </div>
             ) : null}
           </div>
