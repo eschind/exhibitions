@@ -7,7 +7,10 @@ import {
   createExhibition,
   deleteExhibition,
   getExhibition,
+  markExhibitionVisited,
+  savePreferences as dbSavePreferences,
   updateExhibitionPhotos,
+  type Preferences,
 } from '@/lib/db'
 import { requireUserId } from '@/lib/session'
 import { parsePhotos } from '@/lib/format'
@@ -46,14 +49,19 @@ async function saveFile(file: File): Promise<string> {
 
 export async function addExhibition(formData: FormData) {
   const userId = await requireUserId()
+  const status =
+    (formData.get('status') as string) === 'wishlist' ? 'wishlist' : 'visited'
   const link = (formData.get('link') as string) || null
   const title = (formData.get('title') as string)?.trim()
   if (!title) throw new Error('Title is required')
   const venue = (formData.get('venue') as string) || null
   const artists = (formData.get('artists') as string) || null
   const city = (formData.get('city') as string) || null
-  const date_visited = ((formData.get('date_visited') as string) || '').trim()
-  if (!date_visited) throw new Error('Date visited is required')
+  const date_visited_raw = ((formData.get('date_visited') as string) || '').trim()
+  if (status === 'visited' && !date_visited_raw) {
+    throw new Error('Date visited is required')
+  }
+  const date_visited = date_visited_raw || null
   const description = (formData.get('description') as string) || null
   const notes = (formData.get('notes') as string) || null
   const hero_image_url = (formData.get('hero_image_url') as string) || null
@@ -90,11 +98,16 @@ export async function addExhibition(formData: FormData) {
       photos: photoPaths.length ? JSON.stringify(photoPaths) : null,
       notes,
       link,
+      status,
     },
     userId
   )
 
   revalidatePath('/')
+  revalidatePath('/wishlist')
+  if (status === 'wishlist') {
+    redirect('/wishlist')
+  }
   redirect(`/exhibition/${id}`)
 }
 
@@ -132,4 +145,46 @@ export async function removeExhibition(id: number) {
   ]
   await Promise.all(files.map((url) => deleteUpload(url)))
   revalidatePath('/')
+  revalidatePath('/wishlist')
+}
+
+export async function markAsVisited(formData: FormData) {
+  const userId = await requireUserId()
+  const id = Number(formData.get('id'))
+  if (!id) throw new Error('Missing exhibition id')
+  const date_visited = ((formData.get('date_visited') as string) || '').trim()
+  if (!date_visited) throw new Error('Date visited is required')
+  const notes = (formData.get('notes') as string) || null
+
+  const existing = await getExhibition(id, userId)
+  if (!existing) throw new Error('Exhibition not found')
+
+  const photoUrlsRaw = formData.getAll('photo_urls') as string[]
+  const newPaths: string[] = photoUrlsRaw.filter(
+    (u) => typeof u === 'string' && u
+  )
+  if (newPaths.length === 0) {
+    const files = formData.getAll('photos') as File[]
+    for (const f of files) {
+      if (f && f.size > 0) newPaths.push(await saveFile(f))
+    }
+  }
+  const merged = [...parsePhotos(existing.photos), ...newPaths]
+  const photosJson = merged.length ? JSON.stringify(merged) : null
+
+  await markExhibitionVisited(id, userId, {
+    date_visited,
+    notes,
+    photos: photosJson,
+  })
+  revalidatePath('/')
+  revalidatePath('/wishlist')
+  revalidatePath(`/exhibition/${id}`)
+  redirect(`/exhibition/${id}`)
+}
+
+export async function savePreferences(prefs: Preferences) {
+  const userId = await requireUserId()
+  await dbSavePreferences(userId, prefs)
+  revalidatePath('/wishlist')
 }

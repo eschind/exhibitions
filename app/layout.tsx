@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import './globals.css'
 import UserNav from '@/components/UserNav'
+import PrimaryNav from '@/components/PrimaryNav'
 import { auth } from '@/auth'
 
 export const metadata: Metadata = {
@@ -18,10 +19,13 @@ export default async function RootLayout({
     <html lang="en" className="h-full antialiased">
       <body className="min-h-full flex flex-col bg-white text-black">
         <header className="border-b border-black">
-          <div className="max-w-[1400px] mx-auto px-6 md:px-12 py-6 flex items-baseline justify-between">
-            <Link href="/" className="text-2xl md:text-3xl font-bold tracking-tight">
-              Exhibitions
-            </Link>
+          <div className="max-w-[1400px] mx-auto px-6 md:px-12 py-6 flex items-baseline justify-between gap-6">
+            <div className="flex items-baseline gap-10">
+              <Link href="/" className="text-2xl md:text-3xl font-bold tracking-tight">
+                Exhibitions
+              </Link>
+              {isAuthed ? <PrimaryNav /> : null}
+            </div>
             {isAuthed ? (
               <div className="flex items-center gap-6">
                 <UserNav />

@@ -6,6 +6,7 @@ import { requireUserId } from '@/lib/session'
 import { formatDate, parsePhotos, splitArtists } from '@/lib/format'
 import ExhibitionMenu from '@/components/ExhibitionMenu'
 import AddPhotosForm from '@/components/AddPhotosForm'
+import MarkVisitedDialog from '@/components/MarkVisitedDialog'
 
 function wikipediaUrl(name: string): string {
   return `https://en.wikipedia.org/wiki/Special:Search?go=Go&search=${encodeURIComponent(name)}`
@@ -57,17 +58,26 @@ export default async function ExhibitionPage({
     <article>
       <div className="flex items-center justify-between">
         <Link
-          href="/"
+          href={e.status === 'wishlist' ? '/wishlist' : '/'}
           className="text-xs uppercase tracking-widest text-neutral-500 hover:text-black"
         >
-          ← All exhibitions
+          ← {e.status === 'wishlist' ? 'Wishlist' : 'All exhibitions'}
         </Link>
-        <ExhibitionMenu id={e.id} title={e.title} variant="page" />
+        <div className="flex items-center gap-4">
+          {e.status === 'wishlist' ? (
+            <MarkVisitedDialog id={e.id} title={e.title} variant="page" />
+          ) : null}
+          <ExhibitionMenu id={e.id} title={e.title} variant="page" />
+        </div>
       </div>
 
       <header className="mt-8 mb-12 pb-8 border-b border-black flex gap-8 items-start">
         <div className="flex-1 min-w-0">
-          {e.date_visited ? (
+          {e.status === 'wishlist' ? (
+            <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">
+              Wishlist
+            </div>
+          ) : e.date_visited ? (
             <div className="text-xs uppercase tracking-widest text-neutral-500 mb-4">
               Visited {formatDate(e.date_visited)}
             </div>
@@ -152,26 +162,28 @@ export default async function ExhibitionPage({
         </aside>
       </div>
 
-      <section>
-        <div className="flex items-end justify-between mb-6 pb-3 border-b border-black gap-4">
-          <h2 className="text-xs uppercase tracking-widest text-neutral-500">
-            My photos
-          </h2>
-          <AddPhotosForm id={e.id} />
-        </div>
-        {photos.length > 0 ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {photos.map((src) => (
-              <div key={src} className="bg-neutral-100">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={src} alt="" className="w-full h-full object-cover" />
-              </div>
-            ))}
+      {e.status === 'visited' ? (
+        <section>
+          <div className="flex items-end justify-between mb-6 pb-3 border-b border-black gap-4">
+            <h2 className="text-xs uppercase tracking-widest text-neutral-500">
+              My photos
+            </h2>
+            <AddPhotosForm id={e.id} />
           </div>
-        ) : (
-          <div className="text-sm text-neutral-400 py-8">No photos yet.</div>
-        )}
-      </section>
+          {photos.length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {photos.map((src) => (
+                <div key={src} className="bg-neutral-100">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={src} alt="" className="w-full h-full object-cover" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-sm text-neutral-400 py-8">No photos yet.</div>
+          )}
+        </section>
+      ) : null}
     </article>
   )
 }

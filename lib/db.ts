@@ -1,6 +1,8 @@
 import path from 'path'
 import fs from 'fs'
 
+export type ExhibitionStatus = 'visited' | 'wishlist'
+
 export type Exhibition = {
   id: number
   title: string
@@ -13,10 +15,17 @@ export type Exhibition = {
   photos: string | null
   notes: string | null
   link: string | null
+  status: ExhibitionStatus
   created_at: string
 }
 
 export type ExhibitionInput = Omit<Exhibition, 'id' | 'created_at'>
+
+export type Preferences = {
+  artists: string[]
+  cities: string[]
+  venues: string[]
+}
 
 export type User = {
   id: number
@@ -40,6 +49,7 @@ function toExhibition(
 ): Exhibition | undefined {
   if (!row) return undefined
   const created = row.created_at
+  const status = (row.status as string | null) === 'wishlist' ? 'wishlist' : 'visited'
   return {
     id: Number(row.id),
     title: String(row.title ?? ''),
@@ -52,6 +62,7 @@ function toExhibition(
     photos: (row.photos as string | null) ?? null,
     notes: (row.notes as string | null) ?? null,
     link: (row.link as string | null) ?? null,
+    status,
     created_at:
       created instanceof Date
         ? created.toISOString()
@@ -131,7 +142,20 @@ async function ensureSchema() {
       ALTER TABLE exhibitions
         ADD COLUMN IF NOT EXISTS user_id INTEGER REFERENCES users(id) ON DELETE CASCADE
     `
+    await sql`
+      ALTER TABLE exhibitions
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'visited'
+    `
     await sql`CREATE INDEX IF NOT EXISTS exhibitions_user_id_idx ON exhibitions(user_id)`
+    await sql`
+      CREATE TABLE IF NOT EXISTS preferences (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        artists TEXT,
+        cities TEXT,
+        venues TEXT,
+        updated_at TIMESTAMPTZ DEFAULT NOW()
+      )
+    `
   } else {
     const c = await libsql()
     await c.execute(`
@@ -161,14 +185,28 @@ async function ensureSchema() {
       )
     `)
     const cols = await c.execute(`PRAGMA table_info(exhibitions)`)
-    const hasUserId = cols.rows.some(
-      (r) => (r as unknown as { name: string }).name === 'user_id'
+    const colNames = cols.rows.map(
+      (r) => (r as unknown as { name: string }).name
     )
-    if (!hasUserId) {
+    if (!colNames.includes('user_id')) {
       await c.execute(
         `ALTER TABLE exhibitions ADD COLUMN user_id INTEGER REFERENCES users(id) ON DELETE CASCADE`
       )
     }
+    if (!colNames.includes('status')) {
+      await c.execute(
+        `ALTER TABLE exhibitions ADD COLUMN status TEXT NOT NULL DEFAULT 'visited'`
+      )
+    }
+    await c.execute(`
+      CREATE TABLE IF NOT EXISTS preferences (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        artists TEXT,
+        cities TEXT,
+        venues TEXT,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+      )
+    `)
   }
   _initialized = true
 }
@@ -233,13 +271,16 @@ export async function getUserById(id: number): Promise<User | undefined> {
 
 // Exhibitions --------------------------------------------------------------
 
-export async function listExhibitions(userId: number): Promise<Exhibition[]> {
+export async function listExhibitions(
+  userId: number,
+  status: ExhibitionStatus = 'visited'
+): Promise<Exhibition[]> {
   await ensureSchema()
   if (usePostgres) {
     const sql = await pg()
     const rows = (await sql`
       SELECT * FROM exhibitions
-      WHERE user_id = ${userId}
+      WHERE user_id = ${userId} AND status = ${status}
       ORDER BY date_visited DESC NULLS LAST, id DESC
     `) as Record<string, unknown>[]
     return rows
@@ -248,8 +289,8 @@ export async function listExhibitions(userId: number): Promise<Exhibition[]> {
   }
   const c = await libsql()
   const res = await c.execute({
-    sql: `SELECT * FROM exhibitions WHERE user_id = ? ORDER BY date_visited DESC, id DESC`,
-    args: [userId],
+    sql: `SELECT * FROM exhibitions WHERE user_id = ? AND status = ? ORDER BY date_visited DESC, id DESC`,
+    args: [userId, status],
   })
   return res.rows
     .map((r) => toExhibition(r as unknown as Record<string, unknown>))
@@ -284,16 +325,16 @@ export async function createExhibition(
   if (usePostgres) {
     const sql = await pg()
     const rows = (await sql`
-      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id)
-      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link}, ${userId})
+      INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id, status)
+      VALUES (${input.title}, ${input.venue}, ${input.artists}, ${input.hero_image}, ${input.city}, ${input.date_visited}, ${input.description}, ${input.photos}, ${input.notes}, ${input.link}, ${userId}, ${input.status})
       RETURNING id
     `) as Array<{ id: number }>
     return Number(rows[0].id)
   }
   const c = await libsql()
   const res = await c.execute({
-    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    sql: `INSERT INTO exhibitions (title, venue, artists, hero_image, city, date_visited, description, photos, notes, link, user_id, status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     args: [
       input.title,
       input.venue,
@@ -306,9 +347,40 @@ export async function createExhibition(
       input.notes,
       input.link,
       userId,
+      input.status,
     ],
   })
   return Number(res.lastInsertRowid)
+}
+
+export async function markExhibitionVisited(
+  id: number,
+  userId: number,
+  patch: { date_visited: string; notes?: string | null; photos?: string | null }
+): Promise<void> {
+  await ensureSchema()
+  if (usePostgres) {
+    const sql = await pg()
+    await sql`
+      UPDATE exhibitions
+      SET status = 'visited',
+          date_visited = ${patch.date_visited},
+          notes = COALESCE(${patch.notes ?? null}, notes),
+          photos = COALESCE(${patch.photos ?? null}, photos)
+      WHERE id = ${id} AND user_id = ${userId}
+    `
+  } else {
+    const c = await libsql()
+    await c.execute({
+      sql: `UPDATE exhibitions
+            SET status = 'visited',
+                date_visited = ?,
+                notes = COALESCE(?, notes),
+                photos = COALESCE(?, photos)
+            WHERE id = ? AND user_id = ?`,
+      args: [patch.date_visited, patch.notes ?? null, patch.photos ?? null, id, userId],
+    })
+  }
 }
 
 export async function updateExhibitionPhotos(
@@ -347,4 +419,93 @@ export async function deleteExhibition(
     })
   }
   return row
+}
+
+// Preferences -------------------------------------------------------------
+
+function emptyPrefs(): Preferences {
+  return { artists: [], cities: [], venues: [] }
+}
+
+function parseList(value: unknown): string[] {
+  if (typeof value !== 'string' || !value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed)
+      ? parsed.filter((x): x is string => typeof x === 'string')
+      : []
+  } catch {
+    return []
+  }
+}
+
+export async function getPreferences(userId: number): Promise<Preferences> {
+  await ensureSchema()
+  if (usePostgres) {
+    const sql = await pg()
+    const rows = (await sql`
+      SELECT artists, cities, venues FROM preferences WHERE user_id = ${userId}
+    `) as Array<{ artists: string | null; cities: string | null; venues: string | null }>
+    if (rows.length === 0) return emptyPrefs()
+    const r = rows[0]
+    return {
+      artists: parseList(r.artists),
+      cities: parseList(r.cities),
+      venues: parseList(r.venues),
+    }
+  }
+  const c = await libsql()
+  const res = await c.execute({
+    sql: `SELECT artists, cities, venues FROM preferences WHERE user_id = ?`,
+    args: [userId],
+  })
+  if (res.rows.length === 0) return emptyPrefs()
+  const r = res.rows[0] as unknown as {
+    artists: string | null
+    cities: string | null
+    venues: string | null
+  }
+  return {
+    artists: parseList(r.artists),
+    cities: parseList(r.cities),
+    venues: parseList(r.venues),
+  }
+}
+
+export async function savePreferences(
+  userId: number,
+  prefs: Preferences
+): Promise<void> {
+  await ensureSchema()
+  const a = JSON.stringify(prefs.artists)
+  const c = JSON.stringify(prefs.cities)
+  const v = JSON.stringify(prefs.venues)
+  if (usePostgres) {
+    const sql = await pg()
+    await sql`
+      INSERT INTO preferences (user_id, artists, cities, venues, updated_at)
+      VALUES (${userId}, ${a}, ${c}, ${v}, NOW())
+      ON CONFLICT (user_id) DO UPDATE SET
+        artists = EXCLUDED.artists,
+        cities = EXCLUDED.cities,
+        venues = EXCLUDED.venues,
+        updated_at = NOW()
+    `
+    return
+  }
+  const client = await libsql()
+  await client.execute({
+    sql: `INSERT INTO preferences (user_id, artists, cities, venues) VALUES (?, ?, ?, ?)
+          ON CONFLICT(user_id) DO UPDATE SET
+            artists = excluded.artists,
+            cities = excluded.cities,
+            venues = excluded.venues,
+            updated_at = CURRENT_TIMESTAMP`,
+    args: [userId, a, c, v],
+  })
+}
+
+export async function hasPreferences(userId: number): Promise<boolean> {
+  const p = await getPreferences(userId)
+  return p.artists.length + p.cities.length + p.venues.length > 0
 }

@@ -3,8 +3,14 @@
 import { useState, useTransition } from 'react'
 import { addExhibition } from '@/app/actions'
 import { prepareUploads, blobEnabled } from '@/lib/clientUpload'
+import type { ExhibitionStatus } from '@/lib/db'
 
-export default function NewExhibitionForm() {
+export default function NewExhibitionForm({
+  defaultStatus = 'visited',
+}: {
+  defaultStatus?: ExhibitionStatus
+}) {
+  const [status, setStatus] = useState<ExhibitionStatus>(defaultStatus)
   const [link, setLink] = useState('')
   const [title, setTitle] = useState('')
   const [venue, setVenue] = useState('')
@@ -84,8 +90,34 @@ export default function NewExhibitionForm() {
     })
   }
 
+  const isWishlist = status === 'wishlist'
+
   return (
     <form onSubmit={handleSubmit} className="space-y-10">
+      <input type="hidden" name="status" value={status} />
+      <div className="flex gap-2 text-xs uppercase tracking-widest">
+        <button
+          type="button"
+          onClick={() => setStatus('visited')}
+          className={
+            'border border-black px-4 py-2 transition-colors ' +
+            (status === 'visited' ? 'bg-black text-white' : 'hover:bg-neutral-100')
+          }
+        >
+          I&apos;ve visited
+        </button>
+        <button
+          type="button"
+          onClick={() => setStatus('wishlist')}
+          className={
+            'border border-black px-4 py-2 transition-colors ' +
+            (status === 'wishlist' ? 'bg-black text-white' : 'hover:bg-neutral-100')
+          }
+        >
+          I want to visit
+        </button>
+      </div>
+
       <section>
         <Label>Link to exhibition</Label>
         <div className="flex gap-3 items-stretch">
@@ -150,16 +182,18 @@ export default function NewExhibitionForm() {
           />
         </Field>
 
-        <Field label="Date visited *">
-          <input
-            name="date_visited"
-            type="date"
-            required
-            value={dateVisited}
-            onChange={(e) => setDateVisited(e.target.value)}
-            className={inputCls}
-          />
-        </Field>
+        {isWishlist ? null : (
+          <Field label="Date visited *">
+            <input
+              name="date_visited"
+              type="date"
+              required
+              value={dateVisited}
+              onChange={(e) => setDateVisited(e.target.value)}
+              className={inputCls}
+            />
+          </Field>
+        )}
       </div>
 
       <Field label="Hero image">
@@ -198,25 +232,29 @@ export default function NewExhibitionForm() {
         />
       </Field>
 
-      <Field label="My notes">
-        <textarea
-          name="notes"
-          rows={4}
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          className={textareaCls}
-        />
-      </Field>
+      {isWishlist ? null : (
+        <>
+          <Field label="My notes">
+            <textarea
+              name="notes"
+              rows={4}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className={textareaCls}
+            />
+          </Field>
 
-      <Field label="My photos">
-        <input
-          name="photos"
-          type="file"
-          accept="image/*"
-          multiple
-          className="text-sm"
-        />
-      </Field>
+          <Field label="My photos">
+            <input
+              name="photos"
+              type="file"
+              accept="image/*"
+              multiple
+              className="text-sm"
+            />
+          </Field>
+        </>
+      )}
 
       {submitError ? (
         <div className="text-sm text-red-700">{submitError}</div>
@@ -228,7 +266,11 @@ export default function NewExhibitionForm() {
           disabled={isPending}
           className="text-xs uppercase tracking-widest border border-black px-8 py-3 hover:bg-black hover:text-white transition-colors disabled:opacity-40"
         >
-          {isPending ? 'Saving…' : 'Save exhibition'}
+          {isPending
+            ? 'Saving…'
+            : isWishlist
+              ? 'Add to wishlist'
+              : 'Save exhibition'}
         </button>
       </div>
     </form>
